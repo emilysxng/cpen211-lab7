@@ -29,7 +29,7 @@ module lab7_check_tb;
     if (DUT.MEM.mem[4] !== 16'b1110000000000000) begin err = 1; $display("FAILED: mem[4] wrong; please set data.txt using Figure 6"); $stop; end
     if (DUT.MEM.mem[5] !== 16'b1010101111001101) begin err = 1; $display("FAILED: mem[4] wrong; please set data.txt using Figure 6"); $stop; end
 
-    @(negedge clk); // wait until next falling edge of clock
+    @(negedge KEY[0]); // wait until next falling edge of clock
 
     KEY[1] = 1'b1; // reset de-asserted, PC still undefined if as in Figure 4
 
