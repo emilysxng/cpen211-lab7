@@ -7,24 +7,25 @@ module lab7_top(KEY,SW,LEDR,HEX0,HEX1,HEX2,HEX3,HEX4,HEX5);
     input [9:0] SW;
     output [9:0] LEDR;
     output [6:0] HEX0, HEX1, HEX2, HEX3, HEX4, HEX5;
-    wire msel;
-    wire and_result;
-    wire dout;
+    wire msel, and_result1, and_result2, dout;
 
-    // INPUTS: 
-    // OUTPUTS:
+    // INPUTS: mem_cmd, mem_addr, read_data, write_data 
+    // OUTPUTS: 
 
     // The memory is initialized with instructions contained in a file data.txt. The
     // format of each line in data.txt is “@<addr> <contents>”.
 
-    RAM MEM(clk, mem_addr, write_address, write, din, dout); //write_address, write, din still need to be instantiated (stage 3)
-
-    assign msel = (mem_addr == 1'b0) ? 1'b1 : 1'b0;
-    assign and_result = ((mem_cmd == `MREAD) ? 1'b1 : 1'b0) & msel;
+    assign msel = (mem_addr[8] == 1'b0) ? 1'b1 : 1'b0;
+    assign and_result1 = ((mem_cmd == `MWRITE) ? 1'b1 : 1'b0) & msel;
+    assign and_result2 =  ((mem_cmd == `MREAD) ? 1'b1 : 1'b0) & msel;
 
     //tri-state driver
-    assign dout = and_result ? read_data : {16{1’bz}};
+    assign read_data = and_result1 ? dout : {16{1'bz}};
+
+    RAM MEM(clk, mem_addr[7:0], mem_addr[7:0], and_result2, write_data, dout);
+
 endmodule
+
 
 module RAM(clk,read_address,write_address,write,din,dout);
   parameter data_width = 32; 
