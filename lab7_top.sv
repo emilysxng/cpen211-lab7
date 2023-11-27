@@ -11,14 +11,16 @@ module lab7_top(KEY,SW,LEDR,HEX0,HEX1,HEX2,HEX3,HEX4,HEX5);
     wire and_result;
     wire dout;
 
+    // INPUTS: 
+    // OUTPUTS:
+
     // The memory is initialized with instructions contained in a file data.txt. The
     // format of each line in data.txt is “@<addr> <contents>”.
 
     RAM MEM(clk, mem_addr, write_address, write, din, dout); //write_address, write, din still need to be instantiated (stage 3)
 
-    assign msel = (mem_addr = 1'b0) ? 1'b1 : 1'b0;
-
-    assign and_result = ((mem_addr = 1'b0) ? 1'b1 : 1'b0) & msel;
+    assign msel = (mem_addr == 1'b0) ? 1'b1 : 1'b0;
+    assign and_result = ((mem_cmd == `MREAD) ? 1'b1 : 1'b0) & msel;
 
     //tri-state driver
     assign dout = and_result ? read_data : {16{1’bz}};
