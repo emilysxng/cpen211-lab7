@@ -1,0 +1,8 @@
+Emily
+- lab7_top changes for stage 1 and 2
+- stage 3
+
+
+
+Amir
+- FSM and cpu changes for stage 1 and 2

@@ -302,7 +302,7 @@ module datapath (mdata, PC,datapath_out, sximm8, sximm5, writenum, readnum, writ
     //right branch
     vDFFE #(16) registerB (clk,loadb,data_out,fromB);
     shifter Shift (fromB, shift, fromShift);
-    assign Bin = bsel ? sximm5 :fromShift ;
+    assign Bin = bsel ? sximm5 : fromShift;
 
     //all into the same ALU
     ALU Arithmetic(Ain, Bin, ALUop, toC, ZNV);
