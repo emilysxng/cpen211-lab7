@@ -1,21 +1,34 @@
-`define WAIT 5'b00000
+`define RST 5'b00000
+`define IF1 5'b10000
+`define IF2 5'b11000
+`define UpdatePC 5'b11111
+`define STRADD 5'b10101
+`define STRGET_B_AND_GET_A 5'b11110
 `define DECODE 5'b00001
 `define GET_A 5'b00010
 `define GET_B 5'b00011
 `define ADD 5'b00100
 `define WRITE_REG 5'b00101
+`define HALT 5'b11011
 `define CMP 5'b00110
 `define AND 5'b00111
 `define MVN 5'b01000
+`define WAIT_FOR_ADD 5'b01010
+`define GET_ADD 5'b11100
 `define Rd 3'b010
 `define Rm 3'b001
 `define Rn 3'b100
+`define MREAD 2'b10
+`define MWRITE 2'b01
+`define MNONE 2'b00
 
-module cpu(clk, reset, s, load, in, out, N, V, Z, w);
-    input clk, reset, s, load;
-    input [15:0] in;
-    output [15:0] out;
-    output N, V, Z, w;
+module cpu(clk, reset, N, V, Z, mem_addr, mem_cmd, read_data, write_data);
+    input clk, reset;
+    input [15:0] read_data;
+    output N, V, Z;
+    output [1:0] mem_cmd;
+    output [8:0] mem_addr;
+    output [15:0] write_data;
 
     reg [15:0] current_instruction, mdata;
     reg [7:0] imm8;
@@ -25,19 +38,21 @@ module cpu(clk, reset, s, load, in, out, N, V, Z, w);
     reg [1:0] shift;
     reg [2:0] Rd, Rm, Rn, readnum, writenum, nsel, opcode;
     reg [1:0] ALUop, op;
-    wire write, loada, loadb, asel, bsel, loadc, loads, clk;
+    wire write, loada, loadb, asel, bsel, loadc, loads, clk, load_ir, addr_sel, reset_pc, loadpc;
     wire [1:0] vsel;
-    wire [7:0] PC;
+    wire [8:0] PC;
     wire [2:0] ZNV_out;
+    wire [8:0] next_pc;
+    wire [8:0] data_out;
  
     //INSTRUCTION REGISTER: The instruction currently being executed is stored in the 16 bit instruction register
-    //Input: clk, load, in
+    //Input: clk, load, read_data
     //Output: current_instruction
 
     always @(posedge clk) begin
-        case (load)
+        case (load_ir)
             1'b0 : current_instruction = current_instruction; //nothing happens
-            1'b1 : current_instruction = in; //in is copied to IR
+            1'b1 : current_instruction = read_data; //in is copied to IR
             default: current_instruction = current_instruction;
         endcase
     end
@@ -56,6 +71,8 @@ module cpu(clk, reset, s, load, in, out, N, V, Z, w);
         shift = current_instruction[4:3];
         imm8 = current_instruction[7:0];
         imm5 = current_instruction[4:0];
+
+        shift = (opcode == 3'b100) ? 2'b00 : shift; //Shifter will be set to 0 to retrieve a value that is stored in register B for STR
 
         //with nsel, make a mux for Rn, Rd, Rm to readnum and writenum
         case(nsel)
@@ -85,38 +102,47 @@ module cpu(clk, reset, s, load, in, out, N, V, Z, w);
     //Input: clk, opcode, op, s, reset
     //Output: w, nsel, all settings to the datapath
 
-    FSM_controller Controller (clk, reset, s, opcode,  op, nsel, asel, bsel, w, loada,loadb,loadc, loads, ALUop, vsel, write);
-    datapath DP (mdata, PC, out, sximm8, sximm5, writenum, readnum, write, loada, loadb, asel, bsel, vsel, loadc, loads, shift, ALUop, ZNV_out, clk);
+    FSM_controller Controller (clk, reset, opcode, op, nsel, asel, bsel, w, loada, loadb, loadc, load_ir, load_addr, addr_sel, reset_pc, loadpc, mem_cmd, loads, ALUop, vsel, write);
+    datapath DP (read_data, PC, write_data, sximm8, sximm5, writenum, readnum, write, loada, loadb, asel, bsel, vsel, loadc, loads, shift, ALUop, ZNV_out, clk);
+    
+    assign next_pc = reset_pc ? 9'b000000000 : (PC+ 9'b1);
+
+    vDFFE #(9) programCounter (clk, loadpc, next_pc, PC);
+
+    assign mem_addr = addr_sel ? PC : data_out;
+
+    vDFFE #(9) Data_Address (clk, load_addr, write_data[8:0], data_out);
+
     assign N = ZNV_out[1];
     assign Z = ZNV_out[2];
     assign V = ZNV_out[0];
 endmodule: cpu
 
-module FSM_controller (clk, reset, s, opcode, op, nsel, asel, bsel, w, loada, loadb, loadc, loads, ALUop, vsel, write);
-    input clk, reset, s;
+module FSM_controller (clk, reset, opcode, op, nsel, asel, bsel, w, loada, loadb, loadc, load_ir, load_addr, addr_sel, reset_pc, loadpc, mem_cmd, loads, ALUop, vsel, write);
+    input clk, reset;
     input [2:0] opcode;
     input [1:0] op;
     output reg [2:0] nsel;
-    output reg asel,bsel,loada,loadb,loadc,write,loads;
-    output reg [1:0] vsel, ALUop;
+    output reg asel,bsel,loada,loadb,loadc,write, loads, loadpc, addr_sel, load_ir, reset_pc, load_addr;
+    output reg [1:0] vsel, ALUop, mem_cmd;
     output reg w;
     reg [4:0] present_state;
+    reg [4:0] current;
+
 
     always_ff @( posedge clk ) begin 
 
         if (reset) begin
-            present_state = `WAIT;
+            present_state = `RST;
         end
 
         case (present_state)
-            `WAIT: begin
-                w = 1'b1;
-                if (s) begin
-                    present_state = `DECODE;
-                end
-                else begin
-                    present_state = `WAIT;
-                end
+            `RST: begin
+                present_state = `IF1;
+                reset_pc = 1'b1;
+                load_ir = 1'b0;
+                loadpc = 1'b1;  
+                addr_sel = 1'b0;  
                 loadc = 1'b0;
                 loadb = 1'b0;
                 loada = 1'b0;
@@ -125,10 +151,64 @@ module FSM_controller (clk, reset, s, opcode, op, nsel, asel, bsel, w, loada, lo
                 nsel = 3'b000;
                 asel = 1'b0;
                 bsel = 1'b0;
+                current = `RST;
             end 
 
+            `IF1: begin
+                addr_sel = 1'b1;
+                reset_pc = 1'b0;
+                load_ir = 1'b0;
+                loadpc = 1'b0;  
+                mem_cmd = `MREAD;
+                present_state = `IF2;
+                loadc = 1'b0;
+                loadb = 1'b0;
+                loada = 1'b0;
+                write = 1'b0;
+                loads = 1'b0;
+                nsel = 3'b000;
+                asel = 1'b0;
+                bsel = 1'b0;
+                current = `IF1;
+            end
+
+            `IF2: begin
+                addr_sel = 1'b1;
+                reset_pc = 1'b0;
+                load_ir = 1'b1;
+                loadpc = 1'b0;  
+                mem_cmd = `MREAD;
+                loadc = 1'b0;
+                loadb = 1'b0;
+                loada = 1'b0;
+                write = 1'b0;
+                loads = 1'b0;
+                nsel = 3'b000;
+                asel = 1'b0;
+                bsel = 1'b0;
+                present_state = `UpdatePC;
+                current = `IF2;
+            end
+
+            `UpdatePC: begin
+                addr_sel = 1'b0;  
+                reset_pc = 1'b0;  
+                load_ir = 1'b0;
+                loadpc = 1'b1;  
+                mem_cmd = `MNONE;
+                loadc = 1'b0;
+                loadb = 1'b0;
+                loada = 1'b0;
+                write = 1'b0;
+                loads = 1'b0;
+                nsel = 3'b000;
+                asel = 1'b0;
+                bsel = 1'b0;
+                present_state = `DECODE;
+                current = `UpdatePC;
+            end
+
             `DECODE: begin
-                w = 1'b0;
                 if (opcode == 3'b101) begin //ALU instructions
                     if ((op == 2'b00) | (op == 2'b01) | (op == 2'b10)) begin //ADD, CMP, AND
                         present_state = `GET_A;
@@ -147,11 +227,38 @@ module FSM_controller (clk, reset, s, opcode, op, nsel, asel, bsel, w, loada, lo
                     end
                 end
 
+                else if (opcode == 3'b011) begin //LDR
+                    present_state = `GET_A;
+                end
+
+                else if (opcode == 3'b100) begin
+                    present_state = `GET_A;
+                end
+
+                else if (opcode == 3'b111) begin // HALT
+                    present_state = `HALT;
+                end
+
+                addr_sel = 1'b0;
+                load_ir = 1'b0;
+                loadpc = 1'b0;  
+                mem_cmd = `MNONE;
                 loadc = 1'b0;
                 loadb = 1'b0;
                 loada = 1'b0;
                 write = 1'b0;
                 loads = 1'b0;
+                nsel = 3'b000;
+                asel = 1'b0;
+                bsel = 1'b0;
+                current = `DECODE;
+            end
+
+            `HALT: begin
+                if (reset)
+                    present_state = `RST;
+                else
+                    present_state = `HALT;
             end
 
             `GET_A: begin
@@ -162,6 +269,10 @@ module FSM_controller (clk, reset, s, opcode, op, nsel, asel, bsel, w, loada, lo
                 loadc = 1'b0;
                 loads = 1'b0;
                 present_state = `GET_B;
+                addr_sel = 1'b0;
+                load_ir = 1'b0;
+                loadpc = 1'b0; 
+                current = `GET_A; 
             end
 
             `GET_B: begin
@@ -171,10 +282,14 @@ module FSM_controller (clk, reset, s, opcode, op, nsel, asel, bsel, w, loada, lo
                 write = 1'b0;
                 loadc = 1'b0;
                 loads = 1'b0;
+                addr_sel = 1'b0;
+                load_ir = 1'b0;
+                loadpc = 1'b0;  
+                current = `GET_B;
+                bsel = (opcode == 3'b011 | opcode == 3'b100) ? 1'b1 : 1'b0; 
 
                 if (op == 2'b00) begin
-                     present_state = `ADD;
-
+                    present_state = `ADD;
                 end
                 else if (op == 2'b01) begin
                     present_state = `CMP;
@@ -196,14 +311,45 @@ module FSM_controller (clk, reset, s, opcode, op, nsel, asel, bsel, w, loada, lo
                 write = 1'b0;
                 loada = 1'b0;
                 loads = 1'b0;
-                if (opcode == 3'b101) begin
+                addr_sel = 1'b0;
+                load_ir = 1'b0;
+                loadpc = 1'b0;  
+                bsel = (opcode == 3'b011 | opcode == 3'b100) ? 1'b1 : 1'b0; 
+                current = `ADD;
+
+                if (opcode == 3'b011) begin
+                    mem_cmd = `MREAD;
+                    addr_sel = 1'b0;
+                    asel = 1'b0;
+                    load_addr = 1'b1;
+                end
+
+                else if (opcode == 3'b100) begin
+                    mem_cmd = `MWRITE;
+                    load_addr = 1'b1;
+                    addr_sel = 1'b0;
+                    asel = 1'b0;
+                end
+
+                if ((opcode == 3'b101)) begin
                     asel = 1'b0;
                 end
                 else if (opcode == 3'b110) begin
                     asel = 1'b1;
                 end
-                bsel = 1'b0;
-                present_state = `WRITE_REG;
+                if (opcode == 3'b100) begin
+                    present_state = `WAIT_FOR_ADD;
+                end
+                else if (opcode == 3'b011) begin
+                    present_state = `WAIT_FOR_ADD;
+                end
+                else begin
+                    present_state = `WRITE_REG;
+                end
+            end
+
+            `WAIT_FOR_ADD:  begin
+                present_state = `GET_ADD;
             end
 
             `CMP: begin
@@ -215,10 +361,15 @@ module FSM_controller (clk, reset, s, opcode, op, nsel, asel, bsel, w, loada, lo
                 loadb = 1'b0;
                 loadc = 1'b0;
                 loada = 1'b0;
-                present_state = `WAIT; //Do not need to go to write_reg
+                addr_sel = 1'b0;
+                load_ir = 1'b0;
+                loadpc = 1'b0;  
+                present_state = `IF1; //Do not need to go to write_reg
+                current = `CMP;
             end
 
             `AND : begin
+                w = 1'b0;
                 ALUop = 2'b10;
                 loadc = 1'b1;
                 loadb = 1'b0;
@@ -227,10 +378,15 @@ module FSM_controller (clk, reset, s, opcode, op, nsel, asel, bsel, w, loada, lo
                 write = 1'b0;
                 loada = 1'b0;
                 loads = 1'b0;
+                addr_sel = 1'b0;
+                load_ir = 1'b0;
+                loadpc = 1'b0;  
                 present_state = `WRITE_REG;
+                current = `AND;
             end
 
             `MVN : begin
+                w = 1'b0;
                 ALUop = 2'b11;
                 loadc = 1'b1;
                 loada = 1'b0;
@@ -239,43 +395,133 @@ module FSM_controller (clk, reset, s, opcode, op, nsel, asel, bsel, w, loada, lo
                 write = 1'b0;
                 loadb = 1'b0;
                 loads = 1'b0;
+                addr_sel = 1'b0;
+                load_ir = 1'b0;
+                loadpc = 1'b0;  
                 present_state = `WRITE_REG;
+                current = `MVN;
+            end
+
+            `STRGET_B_AND_GET_A: begin
+                if (opcode == 3'b100) begin
+                    nsel = `Rd;
+                end
+                else begin
+                    nsel = `Rm;
+                end
+                bsel = 1'b0;
+                asel = 1'b1;
+                loada = 1'b1;
+                loadb = 1'b1;
+                write = 1'b0;
+                loadc = 1'b0;
+                loads = 1'b0;
+                addr_sel = 1'b0;
+                load_ir = 1'b0;
+                loadpc = 1'b0;  
+                load_addr = 1'b0;
+                present_state = `STRADD;
+                current = `STRGET_B_AND_GET_A;
+            end
+
+            `STRADD : begin
+                ALUop = 2'b00;
+                loadc = 1'b1;
+                loadb = 1'b0;
+                write = 1'b0;
+                loada = 1'b0;
+                loads = 1'b0;
+                bsel = 1'b0;
+                asel = 1'b0;
+                addr_sel = 1'b0;
+                load_ir = 1'b0;
+                loadpc = 1'b0;  
+                load_addr = 1'b0;
+                asel = 1'b1;
+                bsel = 1'b0;
+                present_state = `WRITE_REG;
+                current = `STRADD;
+            end
+
+            `GET_ADD :begin
+                if (opcode == 3'b011) begin
+                    present_state = `WRITE_REG;
+                end
+
+                else begin
+                    present_state = `STRGET_B_AND_GET_A;
+                end
             end
 
             `WRITE_REG: begin //Writing to Rn or Rd
                 if ((op == 2'b11) & (opcode == 3'b101)) begin //MVN
                     nsel = `Rd;
                     vsel = 2'b11;
+                    write = 1'b1;
+                    mem_cmd = `MNONE;
+                    bsel = 1'b0;
+                    load_addr = 1'b0;
                 end
                 else if ((op == 2'b00) & (opcode == 3'b110)) begin //MOV reg -> reg
                     nsel = `Rd;
                     vsel = 2'b11;
+                    write = 1'b1;
+                    mem_cmd = `MNONE;
+                    bsel = 1'b0;
+                    load_addr = 1'b0;
                 end
                 else if ((op == 2'b10) & (opcode == 3'b110)) begin //MOV sximm8 (writing to Rn!!!)
                     nsel = `Rn;
                     vsel = 2'b01;
+                    write = 1'b1;
+                    mem_cmd = `MNONE;
+                    bsel = 1'b0;
+                    load_addr = 1'b0;
+                end
+                else if (opcode == 3'b100) begin //Moving the data that we got from memory into the Rd.
+                    mem_cmd = `MWRITE;
+                    write = 1'b0;
+                    bsel = 1'b0;
+                    load_addr = 1'b0;
+                end
+
+                else if (opcode == 3'b011) begin
+                    nsel = `Rd;
+                    vsel = 2'b00;
+                    write = 1'b1;
+                    mem_cmd = `MREAD;
+                    addr_sel = 1'b0;
+                    load_addr = 1'b1;
+                    bsel = (opcode == 3'b011 | opcode == 3'b100) ? 1'b1 : 1'b0; 
                 end
                 else begin //ADD, AND (CMP never reaches this state)
                     nsel = `Rd;
                     vsel = 2'b11;
+                    write = 1'b1;
+                    mem_cmd = `MNONE;
+                    bsel = 1'b0;
+                    load_addr = 1'b0;
+
                 end
                 loadc = 1'b0;
-                write = 1'b1;
                 loadb = 1'b0;
                 loada = 1'b0;
                 loads = 1'b0;
                 asel = 1'b0;
-                bsel = 1'b0;
-                present_state = `WAIT;
+                load_ir = 1'b0;
+                loadpc = 1'b0;  
+                present_state = `IF1;
+                current = `WRITE_REG;
             end
             default: present_state = present_state;
         endcase
     end
 endmodule
 
+
 module datapath (mdata, PC,datapath_out, sximm8, sximm5, writenum, readnum, write, loada, loadb, asel, bsel, vsel, loadc, loads, shift, ALUop, ZNV_out, clk);
     input [15:0] mdata;
-    input [7:0] PC;
+    input [8:0] PC;
     output [15:0] datapath_out;
     input [2:0] writenum, readnum;
     input write, loada, loadb, asel, bsel, loadc, loads, clk;
@@ -284,7 +530,7 @@ module datapath (mdata, PC,datapath_out, sximm8, sximm5, writenum, readnum, writ
     input [15:0] sximm8, sximm5;
     output [2:0] ZNV_out;
     wire [15:0] data_in;
-    wire [15:0] data_out;
+    wire [15:0] datain_out;
     wire [15:0] fromA ;
     wire [15:0] fromB;
     wire [15:0] fromShift;
@@ -295,14 +541,14 @@ module datapath (mdata, PC,datapath_out, sximm8, sximm5, writenum, readnum, writ
 
     assign data_in = vsel[1] ? (vsel[0] ? datapath_out : {8'b0, PC}) : (vsel[0] ? sximm8 : mdata);
 
-    regfile REGFILE (data_in,writenum,write,readnum,clk,data_out);
+    regfile REGFILE (data_in,writenum,write,readnum,clk,datain_out);
     //left branch
-    vDFFE #(16) registerA (clk,loada,data_out,fromA);
+    vDFFE #(16) registerA (clk,loada,datain_out,fromA);
     assign Ain = asel ? 16'b0 : fromA;
     //right branch
-    vDFFE #(16) registerB (clk,loadb,data_out,fromB);
+    vDFFE #(16) registerB (clk,loadb,datain_out,fromB);
     shifter Shift (fromB, shift, fromShift);
-    assign Bin = bsel ? sximm5 : fromShift;
+    assign Bin = bsel ? sximm5 :fromShift ;
 
     //all into the same ALU
     ALU Arithmetic(Ain, Bin, ALUop, toC, ZNV);
