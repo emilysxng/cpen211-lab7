@@ -8,7 +8,7 @@ module lab7_top(KEY,SW,LEDR,HEX0,HEX1,HEX2,HEX3,HEX4,HEX5);
     output [9:0] LEDR;
     output [6:0] HEX0, HEX1, HEX2, HEX3, HEX4, HEX5;
     wire msel, and_result1, and_result2;
-    wire reset, N, V,Z;
+    wire reset, N, V, Z;
     wire [15:0] write_data, dout;
     wire [15:0] read_data;
     wire [8:0] mem_addr;
@@ -17,6 +17,12 @@ module lab7_top(KEY,SW,LEDR,HEX0,HEX1,HEX2,HEX3,HEX4,HEX5);
 
     assign reset = ~KEY[1];
     assign clk = ~KEY[0];
+    assign HEX0 = 7'b1111111;
+    assign HEX1 = 7'b1111111;
+    assign HEX2 = 7'b1111111;
+    assign HEX3 = 7'b1111111;
+    assign HEX4 = 7'b1111111;
+    assign HEX5 = 7'b1111111;
 
     cpu CPU(clk, reset, N, V, Z, mem_addr, mem_cmd, read_data, write_data);
 
@@ -34,12 +40,8 @@ module lab7_top(KEY,SW,LEDR,HEX0,HEX1,HEX2,HEX3,HEX4,HEX5);
     reg tri_enabler = 1'b0;
 
     always_comb begin
-        if (mem_cmd == `MREAD) begin
-            if (mem_addr == 9'h140)
-                tri_enabler = 1'b1;
-            else
-                tri_enabler = 1'b0;
-        end
+        if ((mem_cmd == `MREAD) & (mem_addr == 9'h140))
+            tri_enabler = 1'b1;
         else
             tri_enabler = 1'b0;
     end
@@ -53,12 +55,8 @@ module lab7_top(KEY,SW,LEDR,HEX0,HEX1,HEX2,HEX3,HEX4,HEX5);
     reg en = 1'b0;
     
     always_comb begin
-        if (mem_cmd == `MWRITE) begin
-            if (mem_addr == 9'h100)
-                en = 1'b1;
-            else
-                en = 1'b0;
-        end
+        if ((mem_cmd == `MWRITE) & (mem_addr == 9'h100)) 
+            en = 1'b1;
         else
             en = 1'b0;
     end
@@ -90,19 +88,4 @@ module RAM(clk,read_address,write_address,write,din,dout);
     dout <= mem[read_address]; // dout doesn't get din in this clock cycle 
                                // (this is due to Verilog non-blocking assignment "<=")
   end 
-endmodule
-
-// en is the 1 bit "check"
-module vDFFE(clk, en, in, out) ;
-    parameter n = 1;  // width
-    input clk, en;
-    input  [n-1:0] in;
-    output [n-1:0] out;
-    reg    [n-1:0] out;
-    reg   [n-1:0] next_out;
-
-    assign next_out = en ? in : out;
-
-    always @(posedge clk)
-    out = next_out;
 endmodule
