@@ -20,7 +20,7 @@ module lab7_top(KEY,SW,LEDR,HEX0,HEX1,HEX2,HEX3,HEX4,HEX5);
 
     cpu CPU(clk, reset, N, V, Z, mem_addr, mem_cmd, read_data, write_data);
 
-    assign msel = (mem_addr[8] == 1'b0) ? 1'b1 : 1'b0;
+    assign msel = (mem_addr[8] == 1'b0);
     assign and_result1 = ((mem_cmd == `MREAD) & msel);
     assign and_result2 = ((mem_cmd == `MWRITE) & msel);
 

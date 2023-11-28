@@ -25,7 +25,7 @@ module lab7_top_tb;
         err = 1; 
         $display("mem[1] wrong"); 
         end
-    if (DUT.MEM.mem[2] !== 16'b1101001100000110) begin 
+    if (DUT.MEM.mem[2] !== 16'b1101001100000111) begin 
         err = 1; 
         $display("mem[2] wrong"); 
         end
@@ -91,7 +91,7 @@ module lab7_top_tb;
         $display("FAILED: PC should be 4.");
         end
 
-    if (DUT.CPU.DP.REGFILE.R3 !== 16'h6) begin 
+    if (DUT.CPU.DP.REGFILE.R3 !== 16'h7) begin 
         err = 1; 
         $display("FAILED: R3 should be 6.");
         end
@@ -103,9 +103,10 @@ module lab7_top_tb;
         $display("FAILED: PC should be 5."); 
         end
 
-    if (DUT.MEM.mem[7] !== 16'hFAFA) begin 
+    if (DUT.MEM.mem[7] !== 16'h4321) begin 
+        $display("%b", DUT.MEM.mem[7]);
         err = 1; 
-        $display("FAILED: mem[7] should be 0xFAFA, there is a problem with STR"); // check if X has been written to memory in address 7
+        $display("FAILED: mem[7] wrong; there is a problem with STR"); // check if X has been written to memory in address 7
         end
 
     if (~err) $display("tests passed");
