@@ -1,8 +1,11 @@
 Emily
-- lab7_top changes for stage 1 and 2
-- stage 3
-
+- lab7_top changes for stage 1, 2, and 3
+- testbench creation
 
 
 Amir
 - FSM and cpu changes for stage 1 and 2
+- debugging & ensuring code passes autograder check
+
+
+Lab 6 code lent to Gursharan Singh (65199713, L1D)

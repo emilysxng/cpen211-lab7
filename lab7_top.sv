@@ -7,26 +7,31 @@ module lab7_top(KEY,SW,LEDR,HEX0,HEX1,HEX2,HEX3,HEX4,HEX5);
     input [9:0] SW;
     output [9:0] LEDR;
     output [6:0] HEX0, HEX1, HEX2, HEX3, HEX4, HEX5;
-    wire msel, and_result1, and_result2, dout;
+    wire msel, and_result1, and_result2;
+    wire reset, N, V,Z;
+    wire [15:0] write_data, dout;
+    wire [15:0] read_data;
+    wire [8:0] mem_addr;
+    wire [1:0] mem_cmd;
+    wire clk;
 
-    // INPUTS: mem_cmd, mem_addr, read_data, write_data 
+    assign reset = ~KEY[1];
+    assign clk = ~KEY[0];
 
-    // The memory is initialized with instructions contained in a file data.txt. The
-    // format of each line in data.txt is “@<addr> <contents>”.
+    cpu CPU(clk, reset, N, V, Z, mem_addr, mem_cmd, read_data, write_data);
 
     assign msel = (mem_addr[8] == 1'b0) ? 1'b1 : 1'b0;
-    assign and_result1 = ((mem_cmd == `MWRITE) ? 1'b1 : 1'b0) & msel;
-    assign and_result2 =  ((mem_cmd == `MREAD) ? 1'b1 : 1'b0) & msel;
+    assign and_result1 = ((mem_cmd == `MREAD) & msel);
+    assign and_result2 = ((mem_cmd == `MWRITE) & msel);
 
     //tri-state driver
     assign read_data = and_result1 ? dout : {16{1'bz}};
 
-    RAM MEM(clk, mem_addr[7:0], mem_addr[7:0], and_result2, write_data, dout);
-
+    RAM #(16,8,"data.txt") MEM(clk, mem_addr[7:0], mem_addr[7:0], and_result2, write_data, dout);
 
     /*** LDR / Switches combinational logic ***/
 
-    reg tri_enabler;
+    reg tri_enabler = 1'b0;
 
     always_comb begin
         if (mem_cmd == `MREAD) begin
@@ -45,7 +50,7 @@ module lab7_top(KEY,SW,LEDR,HEX0,HEX1,HEX2,HEX3,HEX4,HEX5);
 
     /*** STR / LEDR combinational logic ***/
 
-    reg en;
+    reg en = 1'b0;
     
     always_comb begin
         if (mem_cmd == `MWRITE) begin
